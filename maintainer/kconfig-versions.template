@@ -165,6 +165,26 @@ config @@fork|@@_CUSTOM_LOCATION
 
 endif
 
+config @@fork|@@_SRC_RPM
+    bool "RPM"
+    depends on EXPERIMENTAL
+    help
+	Source RPM of @@fork|@@
+
+if @@fork|@@_SRC_RPM
+
+config @@fork|@@_RPM_FILENAME
+    string "RPM Filename"
+    help
+        "RPM Filename without .src.rpm"
+
+config @@fork|@@_RPM_LOCATION
+    string "Source RPM URL"
+    help
+	URL to the location of the source RPM
+
+endif
+
 endchoice
 
 #!// Below, we explicitly select all milestones to which a given version

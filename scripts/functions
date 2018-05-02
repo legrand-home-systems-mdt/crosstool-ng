@@ -1874,6 +1874,24 @@ CT_Download_git()
     CT_Popd
 }
 
+CT_GetVersion_rpm()
+{
+	local rpm_file
+	rpm_file=${rpm_location}/${rpm_filename}
+    # Try getting the rpm with empty list of URLs: it will only
+    # attempt getting it from local storage or from the mirror if configured.
+    if   CT_GetFile package="${pkg_name}" basename="${rpm_filename}" extensions=".src.rpm" ; then
+            rpm_file=${CT_TARBALLS_DIR}/${rpm_filename}
+    fi
+
+	rpm_id=`rpm  -q --queryformat "%{VERSION}" --nodigest --nosignature -p ${rpm_file}.src.rpm`
+}
+
+CT_Download_rpm()
+{
+	CT_DoGetFile ${location}
+}
+
 # Helper: run another action after setting local variables
 CT_PackageRun()
 {
@@ -1897,6 +1915,7 @@ CT_PackageRun()
     for v in basename pkg_name version pkg_dir \
             src_release mirrors archive_filename archive_dirname archive_formats signature_format \
             src_devel devel_vcs devel_url devel_branch devel_revision devel_subdir devel_bootstrap \
+			src_rpm rpm_filename rpm_location \
             src_custom custom_location; do
         eval "local ${v}=\${CT_${use}_${v^^}}"
     done
@@ -1998,6 +2017,62 @@ CT_DoFetch()
         CT_SaveLocal "${CT_TARBALLS_DIR}/${basename}.tar.bz2"
         CT_Popd
         CT_DoExecLog ALL rm -rf "${tmp_dir}"
+
+
+    elif [ "${src_rpm}" = "y" ]; then
+        local rpm_id
+        basename="${rpm_filename}"
+        pkg_dir="${pkg_name}/${rpm_filename}"
+
+		CT_GetVersion_rpm
+
+        if [ -z "${rpm_id}" ]; then
+            CT_Abort "${pkg_name}: rpm did not set unique ID for target rpm"
+        fi
+		basename="${pkg_name}-${rpm_id}"
+
+        # Try getting the tarball with empty list of URLs: it will only
+        # attempt getting it from local storage or from the mirror if configured.
+        if CT_GetFile package="${pkg_name}" \
+                        basename="${basename}" extensions=".tar.bz2" ; then
+            return 0
+        fi
+
+        basename="${pkg_name}-rpm-${rpm_id}"
+        pkg_dir="${pkg_name}/rpm-${rpm_id}"
+
+        if [ "${CT_FORBID_DOWNLOAD}" = "y" ]; then
+            CT_DoLog WARN "Downloads forbidden, not trying retrieval"
+            return 1
+        fi
+
+		CT_MktempDir tmp_dir
+		CT_Pushd "${tmp_dir}"
+		if ! CT_GetFile package="${pkg_name}" basename="${rpm_filename}" extensions=".src.rpm" ; then
+
+			CT_DoLog EXTRA "Retrieving '${basename}' from '${rpm_location}/${rpm_filename}.src.rpm')"
+			CT_DoGetFile "${rpm_location}/${rpm_filename}.src.rpm"
+			CT_SaveLocal "${CT_TARBALLS_DIR}/${rpm_filename}.src.rpm"
+		fi
+		CT_DoLog DEBUG "rpm -i  --define _topdir\ ${tmp_dir}  ${CT_TARBALLS_DIR}/${rpm_filename}.src.rpm"
+		rpm -i  --define _topdir\ ${tmp_dir}  ${CT_TARBALLS_DIR}/${rpm_filename}.src.rpm
+
+		mkdir BUILD
+		rpmbuild --nodeps -bp --define _topdir\ ${tmp_dir} -r ${tmp_dir} SPECS/${pkg_name}.spec
+
+		basename="${pkg_name}-${rpm_id}"
+		pkg_dir="${pkg_name}/rpm-${rpm_id}"
+		CT_Popd
+		CT_Pushd "${tmp_dir}/BUILD/"
+		tmpname=`ls`
+		if [ ${basename} != ${tmpname} ]; then
+			CT_DoLog WARN "Moving '${tmpname}' to '${basename}' possible version information loss"
+			CT_DoExecLog ALL mv "${tmpname}" "${basename}"
+		fi
+		CT_DoExecLog ALL tar cjf "${CT_TARBALLS_DIR}/${basename}.tar.bz2" "."
+        CT_SaveLocal "${CT_TARBALLS_DIR}/${basename}.tar.bz2"
+		CT_Popd
+		CT_DoExecLog ALL rm -rf "${tmp_dir}"
 
     elif [ "${src_custom}" = "y" ]; then
         # Will be handled during extraction/patching
